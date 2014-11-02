@@ -20,7 +20,7 @@ convert_layer_to_8_bit (const exr::Layer &layer)
   const exr::ConstChannelListT &channels = layer.get_channels();
   if (channels.size() != 4)
     {
-    return 0;
+      return 0;
     }
 
   // 8-bit color data
@@ -33,12 +33,12 @@ convert_layer_to_8_bit (const exr::Layer &layer)
 
   // copy over the pixels (TODO: vectorize this code)
   for (size_t i = 0; i < channels[0]->get_pixel_count(); ++i)
-  {
-    dest[4 * i + 0] = r_channel[i] * 255.f;
-    dest[4 * i + 1] = g_channel[i] * 255.f;
-    dest[4 * i + 2] = b_channel[i] * 255.f;
-    dest[4 * i + 3] = a_channel[i] * 255.f;
-  }
+    {
+      dest[4 * i + 0] = r_channel[i] * 255.f;
+      dest[4 * i + 1] = g_channel[i] * 255.f;
+      dest[4 * i + 2] = b_channel[i] * 255.f;
+      dest[4 * i + 3] = a_channel[i] * 255.f;
+    }
 
   return dest;
 }
@@ -96,11 +96,11 @@ query (void)
 
 
 static void
-run(const gchar      *name,
-    gint              nparams,
-    const GimpParam  *param,
-    gint             *nreturn_vals,
-    GimpParam       **return_vals)
+run (const gchar      *name,
+     gint              nparams,
+     const GimpParam  *param,
+     gint             *nreturn_vals,
+     GimpParam       **return_vals)
 {
   static GimpParam  return_values[2];
   GimpRunMode       run_mode;
@@ -117,75 +117,75 @@ run(const gchar      *name,
   // read the exr file and load each layer as a gimp layer
   if (file.load(error_msg))
     {
-    // set up a new image
-    image_id = gimp_image_new (file.get_width(), file.get_height(), GIMP_RGB);
-    if (image_id != -1)
-      {
-      // create a Gimp layer for each EXR layer
-      const exr::ConstLayerListT &layers = file.get_layers(); 
-      for (int i = (int)layers.size() - 1; i >= 0; --i)
+      // set up a new image
+      image_id = gimp_image_new (file.get_width(), file.get_height(), GIMP_RGB);
+      if (image_id != -1)
         {
-        const exr::Layer *layer = layers[i];
+          // create a GIMP layer for each EXR layer
+          const exr::ConstLayerListT &layers = file.get_layers(); 
+          for (int i = (int)layers.size() - 1; i >= 0; --i)
+            {
+              const exr::Layer *layer = layers[i];
 
-        gint32 layer_id = gimp_layer_new (image_id,
-                                          layer->get_name().c_str(),
-                                          file.get_width(),
-                                          file.get_height(),
-                                          GIMP_RGBA_IMAGE, 
-                                          100.0,
-                                          GIMP_NORMAL_MODE);
-        if (layer_id == -1)
-          {
-          g_message("failed to create layer for \"%s\"", layer->get_name().c_str());
-          status = GIMP_PDB_EXECUTION_ERROR;
-          break;
+              gint32 layer_id = gimp_layer_new (image_id,
+                                                layer->get_name().c_str(),
+                                                file.get_width(),
+                                                file.get_height(),
+                                                GIMP_RGBA_IMAGE, 
+                                                100.0,
+                                                GIMP_NORMAL_MODE);
+              if (layer_id == -1)
+                {
+                  g_message("failed to create layer for \"%s\"", layer->get_name().c_str());
+                  status = GIMP_PDB_EXECUTION_ERROR;
+                  break;
+                }
+
+              if (!gimp_image_insert_layer(image_id, layer_id, 0, -1))
+                {
+                  g_message("failed to add layer for \"%s\"", layer->get_name().c_str());
+                  status = GIMP_PDB_EXECUTION_ERROR;
+                  break;
+                }
+
+              // create a drawable for the current layer
+              GimpDrawable *drawable = gimp_drawable_get (layer_id);
+              if (!drawable)
+                {
+                  g_message("failed to get drawable for layer \"%s\"",
+                            layer->get_name().c_str());
+                  status = GIMP_PDB_EXECUTION_ERROR;
+                  break;
+                }
+
+              // init a pixel region that contains the full layer
+              GimpPixelRgn pixel_region;
+              gimp_pixel_rgn_init (&pixel_region,
+                                   drawable,
+                                   0, 0,
+                                   file.get_width(), file.get_height(),
+                                   TRUE,
+                                   TRUE);
+
+              // convert floating point to 8-bit
+              guchar *data_8_bit = convert_layer_to_8_bit (*layer);
+              gimp_pixel_rgn_set_rect (&pixel_region,
+                                       data_8_bit,
+                                       0,
+                                       0,
+                                       pixel_region.w,
+                                       pixel_region.h);
+              delete[] data_8_bit;
+
+              // update drawable
+              gimp_drawable_flush (drawable);
+              gimp_drawable_merge_shadow (drawable->drawable_id, FALSE);
+              gimp_drawable_update (drawable->drawable_id,
+                                    0, 0,
+                                    file.get_width(), file.get_height());
+              // we're done drawing
+              gimp_item_delete (drawable->drawable_id); 
           }
-
-        if (!gimp_image_insert_layer(image_id, layer_id, 0, -1))
-          {
-          g_message("failed to add layer for \"%s\"", layer->get_name().c_str());
-          status = GIMP_PDB_EXECUTION_ERROR;
-          break;
-          }
-
-        // create a drawable for the current layer
-        GimpDrawable *drawable = gimp_drawable_get (layer_id);
-        if (!drawable)
-          {
-          g_message("failed to get drawable for layer \"%s\"",
-                    layer->get_name().c_str());
-          status = GIMP_PDB_EXECUTION_ERROR;
-          break;
-          }
-
-        // init a pixel region that contains the full layer
-        GimpPixelRgn pixel_region;
-        gimp_pixel_rgn_init (&pixel_region,
-                             drawable,
-                             0, 0,
-                             file.get_width(), file.get_height(),
-                             TRUE,
-                             TRUE);
-
-        // convert floating point to 8-bit
-        guchar *data_8_bit = convert_layer_to_8_bit (*layer);
-        gimp_pixel_rgn_set_rect (&pixel_region,
-                                 data_8_bit,
-                                 0,
-                                 0,
-                                 pixel_region.w,
-                                 pixel_region.h);
-        delete[] data_8_bit;
-
-        // update drawable
-        gimp_drawable_flush (drawable);
-        gimp_drawable_merge_shadow (drawable->drawable_id, FALSE);
-        gimp_drawable_update (drawable->drawable_id,
-                              0, 0,
-                              file.get_width(), file.get_height());
-        // we're done drawing
-        gimp_item_delete (drawable->drawable_id); 
-        }
       }
     else
       {

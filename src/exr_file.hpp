@@ -35,13 +35,13 @@ public:
   };
 
   // Creates a new channel.
-  Channel(const std::string &name,
-          const data_type   type,
-          const size_t      pixel_width,
-          const size_t      pixel_height);
+  Channel (const std::string &name,
+           const data_type   type,
+           const size_t      pixel_width,
+           const size_t      pixel_height);
           
   // Destroys this channel.
-  ~Channel();
+  ~Channel ();
 
   // Returns the name of this channel.
   const std::string& get_name() const;
