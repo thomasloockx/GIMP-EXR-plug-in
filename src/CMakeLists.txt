@@ -20,8 +20,9 @@ add_definitions(${GIMP_CXX_FLAGS})
 include_directories(/usr/include/OpenEXR)
 
 set(SOURCES 
-    plugin.cpp 
-    exr_file.cpp)
+    conversion.cpp
+    exr_file.cpp
+    plugin.cpp)
 
 add_executable(${PLUGIN_NAME} ${SOURCES})
 

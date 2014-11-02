@@ -119,9 +119,7 @@ inline size_t Channel::get_pixel_count() const
 
 
 //----------------------------------------------------------------------------
-// Groups a set of channels into a layer. Unlike in an EXR file, channels are
-// always wrapped in a layer. This makes mapping to the Gimp's layers straigh-
-// forward.
+// Groups a set of channels into a layer.
 class Layer
 {
 public:  
@@ -144,7 +142,7 @@ public:
 private:
 
   const std::string name_;
-  ConstChannelListT channels_;
+  ConstChannelListT m_channels;
 };
 
 
@@ -156,7 +154,7 @@ inline Layer::Layer(const std::string &name)
 
 inline Layer::~Layer()
 {
-  channels_.clear();
+  m_channels.clear();
 }
 
 
@@ -168,13 +166,13 @@ inline const std::string& Layer::get_name() const
 
 inline void Layer::add_channel(const Channel *channel)
 {
-  channels_.push_back (channel);
+  m_channels.push_back (channel);
 }
 
 
 inline const ConstChannelListT& Layer::get_channels() const
 {
-  return channels_;
+  return m_channels;
 }
 
 
@@ -196,6 +194,9 @@ public:
   // On failure the error message should contain something meaningfull.
   bool load(std::string &error_msg);
 
+  // Checks if the file was successfully loaded in memory.
+  bool is_loaded() const;
+
   // Returns the load path of this file.
   const std::string& get_path() const;
 
@@ -208,8 +209,22 @@ public:
   // Returns the list of all layers.
   const ConstLayerListT& get_layers() const;
 
+  // Returns the number of layers.
+  size_t get_layer_count() const;
+
+  // Returns a list of all the channels.
+  const ConstChannelListT& get_channels() const;
+
+  // Returns the total number of channels.
+  size_t get_channel_count() const;
+
+  // Checks if we have a channel with the given name.
+  bool has_channel(const std::string &name);
+
 private:
 
+  // flag indicating successfull disk load
+  bool              m_loaded;
   // path to the file on disk
   const std::string path_;
   // width in pixels
@@ -219,10 +234,16 @@ private:
   // OpenEXR lib file handle
   void              *handle_;
   // list of all the channels
-  ConstChannelListT channels_;
+  ConstChannelListT m_channels;
   // list of all the layers
   ConstLayerListT   layers_;
 };
+
+
+inline bool File::is_loaded() const
+{
+  return m_loaded;
+}
 
 
 inline const std::string& File::get_path() const
@@ -249,6 +270,24 @@ inline const ConstLayerListT& File::get_layers() const
 }
 
 
+inline size_t File::get_layer_count() const
+{
+  return layers_.size();
+}
+
+
+inline const ConstChannelListT& File::get_channels() const
+{
+  return m_channels;
+}
+
+
+inline size_t File::get_channel_count() const
+{
+  return m_channels.size();
+}
+
+ 
 } // namespace exr
 
 

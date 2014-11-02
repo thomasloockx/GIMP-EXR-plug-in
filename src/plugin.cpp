@@ -1,10 +1,11 @@
 // C includes
 #include <stdlib.h>
 #include <string.h>
-// gimp includes
+// GIMP includes
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
 // plugin includes
+#include "conversion.hpp"
 #include "exr_file.hpp"
 
 // list of comma seperated file extensions that work for OpenEXR
@@ -13,39 +14,7 @@ static const char *FILE_EXTENSIONS = "exr,EXR";
 static const char *LOAD_PROCEDURE = "file-exr-load";
 
 
-// Converts an EXR layer into Gimp 8-bit color data.
-static guchar*
-convert_layer_to_8_bit (const exr::Layer &layer)
-{
-  const exr::ConstChannelListT &channels = layer.get_channels();
-  if (channels.size() != 4)
-    {
-      return 0;
-    }
-
-  // 8-bit color data
-  guchar *dest = new guchar[channels[0]->get_byte_size()];
-
-  const float *r_channel = (const float*)channels[3]->get_data();
-  const float *g_channel = (const float*)channels[2]->get_data();
-  const float *b_channel = (const float*)channels[1]->get_data();
-  const float *a_channel = (const float*)channels[0]->get_data();
-
-  // copy over the pixels (TODO: vectorize this code)
-  for (size_t i = 0; i < channels[0]->get_pixel_count(); ++i)
-    {
-      dest[4 * i + 0] = r_channel[i] * 255.f;
-      dest[4 * i + 1] = g_channel[i] * 255.f;
-      dest[4 * i + 2] = b_channel[i] * 255.f;
-      dest[4 * i + 3] = a_channel[i] * 255.f;
-    }
-
-  return dest;
-}
-
-
-/* Needs to return plugin info to the GIMP.
- */
+// Returns plugin info to the GIMP.
 static void
 query (void)
 {
@@ -95,6 +64,7 @@ query (void)
 }
 
 
+// Runs the plugin.
 static void
 run (const gchar      *name,
      gint              nparams,
@@ -117,81 +87,12 @@ run (const gchar      *name,
   // read the exr file and load each layer as a gimp layer
   if (file.load(error_msg))
     {
-      // set up a new image
-      image_id = gimp_image_new (file.get_width(), file.get_height(), GIMP_RGB);
-      if (image_id != -1)
+      std::string error_msg;
+      if (!convert_to_8_bit (file, image_id, error_msg))
         {
-          // create a GIMP layer for each EXR layer
-          const exr::ConstLayerListT &layers = file.get_layers(); 
-          for (int i = (int)layers.size() - 1; i >= 0; --i)
-            {
-              const exr::Layer *layer = layers[i];
-
-              gint32 layer_id = gimp_layer_new (image_id,
-                                                layer->get_name().c_str(),
-                                                file.get_width(),
-                                                file.get_height(),
-                                                GIMP_RGBA_IMAGE, 
-                                                100.0,
-                                                GIMP_NORMAL_MODE);
-              if (layer_id == -1)
-                {
-                  g_message("failed to create layer for \"%s\"", layer->get_name().c_str());
-                  status = GIMP_PDB_EXECUTION_ERROR;
-                  break;
-                }
-
-              if (!gimp_image_insert_layer(image_id, layer_id, 0, -1))
-                {
-                  g_message("failed to add layer for \"%s\"", layer->get_name().c_str());
-                  status = GIMP_PDB_EXECUTION_ERROR;
-                  break;
-                }
-
-              // create a drawable for the current layer
-              GimpDrawable *drawable = gimp_drawable_get (layer_id);
-              if (!drawable)
-                {
-                  g_message("failed to get drawable for layer \"%s\"",
-                            layer->get_name().c_str());
-                  status = GIMP_PDB_EXECUTION_ERROR;
-                  break;
-                }
-
-              // init a pixel region that contains the full layer
-              GimpPixelRgn pixel_region;
-              gimp_pixel_rgn_init (&pixel_region,
-                                   drawable,
-                                   0, 0,
-                                   file.get_width(), file.get_height(),
-                                   TRUE,
-                                   TRUE);
-
-              // convert floating point to 8-bit
-              guchar *data_8_bit = convert_layer_to_8_bit (*layer);
-              gimp_pixel_rgn_set_rect (&pixel_region,
-                                       data_8_bit,
-                                       0,
-                                       0,
-                                       pixel_region.w,
-                                       pixel_region.h);
-              delete[] data_8_bit;
-
-              // update drawable
-              gimp_drawable_flush (drawable);
-              gimp_drawable_merge_shadow (drawable->drawable_id, FALSE);
-              gimp_drawable_update (drawable->drawable_id,
-                                    0, 0,
-                                    file.get_width(), file.get_height());
-              // we're done drawing
-              gimp_item_delete (drawable->drawable_id); 
-          }
-      }
-    else
-      {
-        g_message("failed to create image\n");
-        status = GIMP_PDB_EXECUTION_ERROR;
-      }
+          g_message("%s\n", error_msg.c_str());
+          status = GIMP_PDB_EXECUTION_ERROR;
+        }
     }
 
   // init return values

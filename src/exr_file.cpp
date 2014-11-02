@@ -2,6 +2,7 @@
 #include "ImfChannelList.h"
 #include "ImfHeader.h"
 #include "ImfInputFile.h"
+#include "ImfTestFile.h"
 // myself
 #include "exr_file.hpp"
 
@@ -29,6 +30,7 @@ Channel::~Channel()
 
 File::File(const std::string &path)
 :
+  m_loaded(false),
   path_(path),
   width_(0),
   height_(0),
@@ -45,11 +47,11 @@ File::~File()
     }
   layers_.clear();
   // delete channels 
-  for (size_t i = 0; i < channels_.size(); ++i)
+  for (size_t i = 0; i < m_channels.size(); ++i)
     {
-    delete channels_[i];
+    delete m_channels[i];
     }
-  channels_.clear();
+  m_channels.clear();
   // cleanup OpenEXR file handle
   delete (Imf::InputFile*)handle_;
 }
@@ -57,6 +59,13 @@ File::~File()
 
 bool File::load(std::string &error_msg)
 {
+  // don't bother if it's not an OpenEXR file
+  if (!Imf::isOpenExrFile(get_path().c_str()))
+    {
+      error_msg = "file is not a valid OpenEXR file";
+      return false;
+    }
+
   try
     {
       // open file and keep track of it
@@ -110,7 +119,7 @@ bool File::load(std::string &error_msg)
             }
 
           // track the channel
-          channels_.push_back(channel);
+          m_channels.push_back(channel);
 
           // register channels' buffer with fame buffer
           frame_buffer.insert (channel->get_name().c_str(),
@@ -141,11 +150,11 @@ bool File::load(std::string &error_msg)
             {
               const std::string channel_name = cIt.name();
               // find this layer
-              for (size_t i = 0; i < channels_.size(); ++i)
+              for (size_t i = 0; i < m_channels.size(); ++i)
                 {
-                  if (channels_[i]->get_name() == channel_name)
+                  if (m_channels[i]->get_name() == channel_name)
                     {
-                      layer->add_channel(channels_[i]); 
+                      layer->add_channel(m_channels[i]); 
                       break;
                     }
                 }
@@ -163,7 +172,22 @@ bool File::load(std::string &error_msg)
       return false;
     }
 
+  m_loaded = true;
   return true;
+}
+
+
+bool File::has_channel(const std::string &name)
+{
+  for (size_t i = 0; i < m_channels.size(); ++i)
+    {
+      if (m_channels[i]->get_name() == name)
+        {
+          return true;
+        }
+    }
+
+    return false;
 }
 
 
