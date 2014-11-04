@@ -1,3 +1,5 @@
+// C++ includes
+#include <algorithm>
 // OpenEXR includes
 #include "ImfChannelList.h"
 #include "ImfHeader.h"
@@ -8,44 +10,107 @@
 
 using namespace exr;
 
+// Searches for a channel in the list O(N)
+static bool contains_channel (const ChannelListT &channels,
+                              const std::string  &name)
+{
+  for (size_t i = 0; i < channels.size(); ++i)
+    {
+      if (channels[i]->get_name() == name)
+        {
+          return true;
+        }
+    }
+  return false;
+}
+
+
+// Given a channel list, determines the image type.
+static image_type channels_to_image_type 
+  (const ConstChannelListT &channels)
+{
+  if (channels.empty() || channels.size() > 4) { return IMAGE_TYPE_UNDEFINED; }
+
+  // create a string with the channel names, sort it and compare it with the
+  // possible channel combinations
+  std::string letters;
+  for (size_t i = 0; i < channels.size(); ++i)
+    {
+      letters += channels[i]->get_name();
+    }
+  std::sort(letters.begin(), letters.end());
+
+  if (letters == "Y"    ) { return IMAGE_TYPE_Y;      }
+  if (letters == "BCRRY") { return IMAGE_TYPE_CHROMA; }
+  if (letters == "BGR"  ) { return IMAGE_TYPE_RGB;    }
+  if (letters == "ABGR" ) { return IMAGE_TYPE_RGBA;   }
+  if (letters == "CY"   ) { return IMAGE_TYPE_YC;     }
+  if (letters == "AY"   ) { return IMAGE_TYPE_YA;     }
+  if (letters == "ACY"  ) { return IMAGE_TYPE_YC;     }
+
+  return IMAGE_TYPE_UNDEFINED;
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Implementation of Channel
+
+
 Channel::Channel(const std::string &name,
                  const data_type   type,
                  const size_t      pixel_width,
                  const size_t      pixel_height)
 :
-  name_(name),
-  type_(type),
-  x_stride_(type == HALF ? 2 : 4),
-  y_stride_(x_stride_ * pixel_width),
-  line_count_(pixel_height),
-  buffer_(new char[y_stride_ * line_count_])
+  m_name(name),
+  m_type(type),
+  m_x_stride(type == DATA_TYPE_HALF ? 2 : 4),
+  m_y_stride(m_x_stride * pixel_width),
+  m_line_count(pixel_height),
+  m_buffer(new char[m_y_stride * m_line_count])
 {}
  
 
 Channel::~Channel()
 {
-  delete[] buffer_;
+  delete[] m_buffer;
 }
+
+
+
+//-----------------------------------------------------------------------------
+// Implementation of Layer
+
+
+const image_type Layer::get_image_type() const
+{
+  return channels_to_image_type (m_channels);
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Implementation of File
 
 
 File::File(const std::string &path)
 :
   m_loaded(false),
-  path_(path),
-  width_(0),
-  height_(0),
-  handle_(NULL)
+  m_path(path),
+  m_width(0),
+  m_height(0),
+  m_handle(NULL)
 {}
 
 
 File::~File()
 {
   // delete layers
-  for (size_t i = 0; i < layers_.size(); ++i)
+  for (size_t i = 0; i < m_layers.size(); ++i)
     {
-      delete layers_[i];
+      delete m_layers[i];
     }
-  layers_.clear();
+  m_layers.clear();
   // delete channels 
   for (size_t i = 0; i < m_channels.size(); ++i)
     {
@@ -53,7 +118,7 @@ File::~File()
     }
   m_channels.clear();
   // cleanup OpenEXR file handle
-  delete (Imf::InputFile*)handle_;
+  delete (Imf::InputFile*)m_handle;
 }
 
 
@@ -69,14 +134,14 @@ bool File::load(std::string &error_msg)
   try
     {
       // open file and keep track of it
-      Imf::InputFile *file = new Imf::InputFile(path_.c_str());
-      handle_              = (void*)file;
+      Imf::InputFile *file = new Imf::InputFile(m_path.c_str());
+      m_handle             = (void*)file;
 
       // extract the header info
       const Imf::Header &header = file->header();
       Imath::Box2i data_window  = header.dataWindow();
-      width_                    = data_window.max.x - data_window.min.x + 1;
-      height_                   = data_window.max.y - data_window.min.y + 1;
+      m_width                   = data_window.max.x - data_window.min.x + 1;
+      m_height                  = data_window.max.y - data_window.min.y + 1;
 
       Imf::FrameBuffer frame_buffer;
 
@@ -95,25 +160,25 @@ bool File::load(std::string &error_msg)
             case Imf::UINT:
               {
               channel = new Channel (it.name(), 
-                                     Channel::UINT,
-                                     width_,
-                                     height_);
+                                     DATA_TYPE_UINT,
+                                     m_width,
+                                     m_height);
               break;
               }
             case Imf::FLOAT:
               {
               channel = new Channel (it.name(), 
-                                     Channel::FLOAT,
-                                     width_,
-                                     height_);
+                                     DATA_TYPE_FLOAT,
+                                     m_width,
+                                     m_height);
               break;
               }
             case Imf::HALF:
               {
               channel = new Channel (it.name(), 
-                                     Channel::HALF,
-                                     width_,
-                                     height_);
+                                     DATA_TYPE_HALF,
+                                     m_width,
+                                     m_height);
               break;
               }
             }
@@ -159,7 +224,7 @@ bool File::load(std::string &error_msg)
                     }
                 }
           }
-          layers_.push_back (layer);
+          m_layers.push_back (layer);
         }
 
       // read out all the data in one sweep 
@@ -177,7 +242,13 @@ bool File::load(std::string &error_msg)
 }
 
 
-bool File::has_channel(const std::string &name)
+const image_type File::get_image_type() const
+{
+  return channels_to_image_type (m_channels);
+}
+
+
+bool File::has_channel(const std::string &name) const
 {
   for (size_t i = 0; i < m_channels.size(); ++i)
     {
@@ -188,6 +259,19 @@ bool File::has_channel(const std::string &name)
     }
 
     return false;
+}
+
+
+const Channel* File::find_channel (const std::string &name) const
+{
+  for (size_t i = 0; i < m_channels.size(); ++i)
+    {
+      if (m_channels[i]->get_name() == name)
+        {
+          return m_channels[i];
+        }
+    }
+  return NULL;
 }
 
 

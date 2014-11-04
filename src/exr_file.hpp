@@ -21,18 +21,43 @@ typedef std::vector<Layer*>           LayerListT;
 typedef std::vector<const Layer*>     ConstLayerListT;;
 
 
+// pixel data type
+enum data_type
+{
+  DATA_TYPE_FLOAT = 1,
+  DATA_TYPE_HALF  = 2,
+  DATA_TYPE_UINT  = 3,
+};
+
+
+// Gives semantics either to an image or a layer in an image (which kinda is
+// a seperate image).
+enum image_type
+{
+  // undefined (just a set of channels)
+  IMAGE_TYPE_UNDEFINED = 0,
+  // black and white
+  IMAGE_TYPE_Y         = 1,
+  // chroma channel and sub sampled RY and RB
+  IMAGE_TYPE_CHROMA    = 2,
+  // RGB channels
+  IMAGE_TYPE_RGB       = 3,
+  // RGBA channels
+  IMAGE_TYPE_RGBA      = 4,
+  // luminance, chroma
+  IMAGE_TYPE_YC        = 5,
+  // luminance, alpha
+  IMAGE_TYPE_YA        = 6,
+  // luminance, chroma and alpha
+  IMAGE_TYPE_YCA       = 7,
+};
+
+
 //-----------------------------------------------------------------------------
 // Wraps a data channel from the file in memory.
 class Channel
 {
 public:
-
-  enum data_type
-  {
-    FLOAT = 1,
-    HALF  = 2,
-    UINT  = 3,
-  };
 
   // Creates a new channel.
   Channel (const std::string &name,
@@ -67,54 +92,54 @@ public:
 
 private:
 
-  const std::string name_;
-  const data_type   type_;
-  const size_t      x_stride_;
-  const size_t      y_stride_;
-  const size_t      line_count_;
-  char              *const buffer_;
+  const std::string m_name;
+  const data_type   m_type;
+  const size_t      m_x_stride;
+  const size_t      m_y_stride;
+  const size_t      m_line_count;
+  char              *const m_buffer;
 };
 
 
 inline const std::string& Channel::get_name() const
 {
-  return name_;
+  return m_name;
 }
 
 
-inline Channel::data_type Channel::get_type() const
+inline data_type Channel::get_type() const
 {
-  return type_;
+  return m_type;
 }
 
 
 inline const char* Channel::get_data() const
 {
-  return buffer_;
+  return m_buffer;
 }
   
 
 inline size_t Channel::get_byte_size() const
 {
-  return y_stride_ * line_count_;
+  return m_y_stride * m_line_count;
 }
 
 
 inline size_t Channel::get_x_stride() const
 {
-  return x_stride_;
+  return m_x_stride;
 }
 
 
 inline size_t Channel::get_y_stride() const
 {
-  return y_stride_;
+  return m_y_stride;
 }
 
 
 inline size_t Channel::get_pixel_count() const
 {
-  return (y_stride_ / x_stride_) * line_count_;
+  return (m_y_stride / m_x_stride) * m_line_count;
 }
 
 
@@ -130,25 +155,31 @@ public:
   // Destroys this layer.
   ~Layer();
 
+  // Returns the type of image contained in this layer.
+  const image_type get_image_type() const;
+
   // Returns the name of this layer.
   const std::string& get_name() const;
 
   // Adds a channel to this layer.
   void add_channel(const Channel *channel);
 
-  // Returns the list of channels in this layers.
+  // Returns the list of channels in this layer.
   const ConstChannelListT& get_channels() const;
+
+  // Checks if we have a channel with the given name.
+  bool has_channel(const std::string &name) const;
 
 private:
 
-  const std::string name_;
+  const std::string m_name;
   ConstChannelListT m_channels;
 };
 
 
 inline Layer::Layer(const std::string &name)
 :
-  name_(name)
+  m_name(name)
 {}
 
 
@@ -160,7 +191,7 @@ inline Layer::~Layer()
 
 inline const std::string& Layer::get_name() const
 {
-  return name_;
+  return m_name;
 }
 
 
@@ -194,6 +225,9 @@ public:
   // On failure the error message should contain something meaningfull.
   bool load(std::string &error_msg);
 
+  // Returns the type of image contained in this layer.
+  const image_type get_image_type() const;
+
   // Checks if the file was successfully loaded in memory.
   bool is_loaded() const;
 
@@ -219,24 +253,27 @@ public:
   size_t get_channel_count() const;
 
   // Checks if we have a channel with the given name.
-  bool has_channel(const std::string &name);
+  bool has_channel(const std::string &name) const;
+
+  // Returns a particular channel by name or NULL.
+  const Channel* find_channel (const std::string &name) const;
 
 private:
 
   // flag indicating successfull disk load
   bool              m_loaded;
   // path to the file on disk
-  const std::string path_;
+  const std::string m_path;
   // width in pixels
-  size_t            width_;
+  size_t            m_width;
   // height in pixels
-  size_t            height_;
+  size_t            m_height;
   // OpenEXR lib file handle
-  void              *handle_;
+  void              *m_handle;
   // list of all the channels
   ConstChannelListT m_channels;
   // list of all the layers
-  ConstLayerListT   layers_;
+  ConstLayerListT   m_layers;
 };
 
 
@@ -248,31 +285,31 @@ inline bool File::is_loaded() const
 
 inline const std::string& File::get_path() const
 {
-  return path_;
+  return m_path;
 }
 
 
 inline size_t File::get_width() const
 {
-  return width_;
+  return m_width;
 }
 
 
 inline size_t File::get_height() const
 {
-  return height_;
+  return m_height;
 }
 
 
 inline const ConstLayerListT& File::get_layers() const
 {
-  return layers_;
+  return m_layers;
 }
 
 
 inline size_t File::get_layer_count() const
 {
-  return layers_.size();
+  return m_layers.size();
 }
 
 
