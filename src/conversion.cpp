@@ -186,8 +186,21 @@ static const char* layer_type_to_string (const LayerType type)
 }
 
 
+template<typename T>
+static inline T clamp (const T x,
+                       const T lo,
+                       const T hi)
+{
+  if (x < lo) { return lo; }
+  if (x > hi) { return hi; }
+  return x;
+}
+
+
 // Converts EXR HDR channel data to GIMP 8-bit LDR.
 //
+// @param[in]   settings
+//    user-configured conversion settings
 // @param[in]   pixel_count
 //    number of pixels for the image - must be also the lenght of each channel
 //    data array
@@ -197,11 +210,14 @@ static const char* layer_type_to_string (const LayerType type)
 //    list with the raw data for each channel
 // @param[out]  output
 //    8-bit LDR image, it's up to the caller to delete[] this image afterwards
-static void convert_to_ldr(const size_t             pixel_count,
+static void convert_to_ldr(const ConversionSettings &settings,
+                           const size_t             pixel_count,
                            const exr::PixelDataType data_type,
                            std::vector<const char*> &input,
                            guchar                   **output)
 {
+  const float  inv_gamma     = 1.0f / settings.m_gamma;
+  const float  exposure      = powf(2.f, settings.m_exposure + 2.47393f);
   const size_t channel_count = input.size();
   *output                    = new guchar[pixel_count * channel_count];
 
@@ -216,7 +232,8 @@ static void convert_to_ldr(const size_t             pixel_count,
           {
             for (size_t j = 0; j < channel_count; ++j)
               {
-                (*output)[channel_count * i + j] = ((float*)input[j])[i] * 255.f;
+                float val = ((float*)input[j])[i];
+                (*output)[channel_count * i + j] = clamp(val * 255.f, 0.f, 255.f);
               }
           }
         break;
@@ -227,7 +244,8 @@ static void convert_to_ldr(const size_t             pixel_count,
             {
               for (size_t j = 0; j < channel_count; ++j)
                 {
-                  (*output)[channel_count * i + j] = ((half*)input[j])[i] * 255.f;
+                  float val = ((half*)input[j])[i] * 1.f;
+                  (*output)[channel_count * i + j] = clamp(val * 255.f, 0.f, 255.f);
                 }
             }
          break;
@@ -238,7 +256,8 @@ static void convert_to_ldr(const size_t             pixel_count,
             {
               for (size_t j = 0; j < channel_count; ++j)
                 {
-                  (*output)[channel_count * i + j] = ((unsigned int*)input[j])[i] * 255u;
+                  float val = ((unsigned int*)input[j])[i] * 1u;
+                  (*output)[channel_count * i + j] = clamp(val * 255.f, 0.f, 255.f);
                 }
             }
         break;
@@ -298,7 +317,8 @@ bool Converter::convert (gint32      &image_id,
               input.push_back(layer->get_channel("A")->get_data());
               
               guchar *output = NULL;
-              convert_to_ldr (m_file.get_width() * m_file.get_height(),
+              convert_to_ldr (m_settings,
+                              m_file.get_width() * m_file.get_height(),
                               layer->get_channel("R")->get_pixel_data_type(),
                               input,
                               &output);

@@ -16,7 +16,28 @@ struct ConversionSettings
 {
     // gamma correction factor
     float m_gamma;
+    // exposure of the image (stops)
+    float m_exposure; 
+    // 
+    float m_knee_low;
+    //
+    float m_knee_high;
+    // 
+    float m_defog;
+
+    // inits to default
+    ConversionSettings();
 };
+
+
+inline ConversionSettings::ConversionSettings()
+{
+    m_gamma     = 2.2f;
+    m_exposure  = 0.0f;
+    m_knee_low  = 0.0f;
+    m_knee_high = 5.0f;
+    m_defog     = 0.0f;
+}
 
 
 

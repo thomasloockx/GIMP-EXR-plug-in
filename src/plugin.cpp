@@ -88,7 +88,7 @@ run (const gchar      *name,
     {
       // TODO: configurable settings
       ConversionSettings settings;
-      settings.m_gamma = 2.2f;
+
       // create converter and do the conversion
       Converter converter (file, settings);
       if (!converter.convert (image_id, error_msg))
