@@ -21,35 +21,11 @@ typedef std::vector<Layer*>           LayerListT;
 typedef std::vector<const Layer*>     ConstLayerListT;;
 
 
-// pixel data type
-enum data_type
+enum PixelDataType
 {
-  DATA_TYPE_FLOAT = 1,
-  DATA_TYPE_HALF  = 2,
-  DATA_TYPE_UINT  = 3,
-};
-
-
-// Gives semantics either to an image or a layer in an image (which kinda is
-// a seperate image).
-enum image_type
-{
-  // undefined (just a set of channels)
-  IMAGE_TYPE_UNDEFINED = 0,
-  // black and white
-  IMAGE_TYPE_Y         = 1,
-  // chroma channel and sub sampled RY and RB
-  IMAGE_TYPE_CHROMA    = 2,
-  // RGB channels
-  IMAGE_TYPE_RGB       = 3,
-  // RGBA channels
-  IMAGE_TYPE_RGBA      = 4,
-  // luminance, chroma
-  IMAGE_TYPE_YC        = 5,
-  // luminance, alpha
-  IMAGE_TYPE_YA        = 6,
-  // luminance, chroma and alpha
-  IMAGE_TYPE_YCA       = 7,
+  PIXEL_DATA_TYPE_FLOAT = 1,
+  PIXEL_DATA_TYPE_HALF  = 2,
+  PIXEL_DATA_TYPE_UINT  = 3,
 };
 
 
@@ -60,10 +36,10 @@ class Channel
 public:
 
   // Creates a new channel.
-  Channel (const std::string &name,
-           const data_type   type,
-           const size_t      pixel_width,
-           const size_t      pixel_height);
+  Channel (const std::string   &name,
+           const PixelDataType type,
+           const size_t        pixel_width,
+           const size_t        pixel_height);
           
   // Destroys this channel.
   ~Channel ();
@@ -71,8 +47,11 @@ public:
   // Returns the name of this channel.
   const std::string& get_name() const;
 
-  // Returns the data type of this channel.
-  data_type get_type() const;
+  // Returns the layer that contains this channel.
+  const Layer* get_layer() const;
+
+  // Returns the pixel data type of this channel.
+  PixelDataType get_pixel_data_type() const;
 
   // Fetches the raw data pointer. Pixel (x, y)'s index is calculated with:
   // index = x * x_stride + y * y_stride
@@ -92,12 +71,18 @@ public:
 
 private:
 
-  const std::string m_name;
-  const data_type   m_type;
-  const size_t      m_x_stride;
-  const size_t      m_y_stride;
-  const size_t      m_line_count;
-  char              *const m_buffer;
+  friend class Layer;
+
+  const std::string   m_name;
+  const Layer*        m_layer;
+  const PixelDataType m_pixel_data_type;
+  const size_t        m_x_stride;
+  const size_t        m_y_stride;
+  const size_t        m_line_count;
+  char                *const m_buffer;
+
+  // internal function to set a layer
+  void set_layer(const Layer *layer);
 };
 
 
@@ -107,9 +92,21 @@ inline const std::string& Channel::get_name() const
 }
 
 
-inline data_type Channel::get_type() const
+inline const Layer* Channel::get_layer() const
 {
-  return m_type;
+  return m_layer;
+}
+
+
+inline void Channel::set_layer(const Layer *layer)
+{
+  m_layer = layer;
+}
+
+
+inline PixelDataType Channel::get_pixel_data_type() const
+{
+  return m_pixel_data_type;
 }
 
 
@@ -143,8 +140,9 @@ inline size_t Channel::get_pixel_count() const
 }
 
 
+
 //----------------------------------------------------------------------------
-// Groups a set of channels into a layer.
+// Groups a set of channels into a layer. Each channel is always on a layer.
 class Layer
 {
 public:  
@@ -155,17 +153,18 @@ public:
   // Destroys this layer.
   ~Layer();
 
-  // Returns the type of image contained in this layer.
-  const image_type get_image_type() const;
-
   // Returns the name of this layer.
   const std::string& get_name() const;
 
-  // Adds a channel to this layer.
-  void add_channel(const Channel *channel);
+  // Adds a channel to this layer. The layer will also set itself
+  // as the "parent" of the channel.
+  void add_channel(Channel *channel);
 
   // Returns the list of channels in this layer.
   const ConstChannelListT& get_channels() const;
+
+  // Returns the number of channels.
+  size_t get_channel_count() const;
 
   // Checks if we have a channel with the given name.
   bool has_channel(const std::string &name) const;
@@ -195,15 +194,22 @@ inline const std::string& Layer::get_name() const
 }
 
 
-inline void Layer::add_channel(const Channel *channel)
+inline void Layer::add_channel(Channel *channel)
 {
   m_channels.push_back (channel);
+  channel->set_layer (this);
 }
 
 
 inline const ConstChannelListT& Layer::get_channels() const
 {
   return m_channels;
+}
+
+
+inline size_t Layer::get_channel_count() const
+{
+  return m_channels.size();
 }
 
 
@@ -214,7 +220,6 @@ class File
 {
 public:
 
-
   // Creates an file, this will not read the file.
   File(const std::string &path); 
 
@@ -224,9 +229,6 @@ public:
   // Loads the exr file into memory. Returns true on success, false on failure.
   // On failure the error message should contain something meaningfull.
   bool load(std::string &error_msg);
-
-  // Returns the type of image contained in this layer.
-  const image_type get_image_type() const;
 
   // Checks if the file was successfully loaded in memory.
   bool is_loaded() const;
@@ -255,7 +257,8 @@ public:
   // Checks if we have a channel with the given name.
   bool has_channel(const std::string &name) const;
 
-  // Returns a particular channel by name or NULL.
+  // Returns a particular channel by name. Returns NULL if no channel was
+  // found in this image.
   const Channel* find_channel (const std::string &name) const;
 
 private:
@@ -270,9 +273,9 @@ private:
   size_t            m_height;
   // OpenEXR lib file handle
   void              *m_handle;
-  // list of all the channels
+  // list of all the channels in this file (nested in layers as well)
   ConstChannelListT m_channels;
-  // list of all the layers
+  // list of all the layers in this file
   ConstLayerListT   m_layers;
 };
 

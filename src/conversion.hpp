@@ -1,7 +1,7 @@
 #ifndef _CONVERSION_HPP_
 #define _CONVERSION_HPP_ 1
 
-// C++ includes
+// system includes
 #include <string>
 
 namespace exr
@@ -10,20 +10,46 @@ namespace exr
 }
 
 
-// Converts an EXR file into an 8-bit GIMP image. We try to map the structure
-// of the EXR file as best as possible to GIMP layers.
-// 
-// @param[in]   file
-//  EXR file, this file must already be loaded in memory.
-// @param[out]  image_id
-//  Id of the freshly created image. Only valid when we return true.
-// @param[out]  error_message
-//  Error message, only valid when we return false.
-// @return
-//  True on success, false on failure.
-bool convert_to_8_bit (const exr::File &file,
-                       gint32          &image_id,
-                       std::string     &error_msg);
+//-----------------------------------------------------------------------------
+// Tracks the user-defined settings for doing the conversion.
+struct ConversionSettings
+{
+    // gamma correction factor
+    float m_gamma;
+};
+
+
+
+//-----------------------------------------------------------------------------
+// Converts an EXR file into a GIMP image. We try to map the structure of the
+// EXR file to something that makes sense in the GIMP.
+class Converter
+{
+public:
+
+    // Creates a new converter.
+    Converter (const exr::File          &file,
+               const ConversionSettings &settings);
+
+    // Converts an EXR file into an 8-bit GIMP image.
+    //
+    // @param[out]  image_id
+    //  Id of the freshly created image. Only valid when we return true.
+    // @param[out]  error_message
+    //  Error message, only set when this function fails.
+    // @return
+    //  True on success, false on failure.
+    bool convert (gint32      &image_id,
+                  std::string &error_msg);
+
+protected:
+
+    // file to convert
+    const exr::File          &m_file;
+    // conversion settings
+    const ConversionSettings m_settings;
+};
+
 
 
 #endif // #ifndef _CONVERSION_HPP_

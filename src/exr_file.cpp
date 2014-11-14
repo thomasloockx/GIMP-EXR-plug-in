@@ -10,61 +10,20 @@
 
 using namespace exr;
 
-// Searches for a channel in the list O(N)
-static bool contains_channel (const ChannelListT &channels,
-                              const std::string  &name)
-{
-  for (size_t i = 0; i < channels.size(); ++i)
-    {
-      if (channels[i]->get_name() == name)
-        {
-          return true;
-        }
-    }
-  return false;
-}
-
-
-// Given a channel list, determines the image type.
-static image_type channels_to_image_type 
-  (const ConstChannelListT &channels)
-{
-  if (channels.empty() || channels.size() > 4) { return IMAGE_TYPE_UNDEFINED; }
-
-  // create a string with the channel names, sort it and compare it with the
-  // possible channel combinations
-  std::string letters;
-  for (size_t i = 0; i < channels.size(); ++i)
-    {
-      letters += channels[i]->get_name();
-    }
-  std::sort(letters.begin(), letters.end());
-
-  if (letters == "Y"    ) { return IMAGE_TYPE_Y;      }
-  if (letters == "BCRRY") { return IMAGE_TYPE_CHROMA; }
-  if (letters == "BGR"  ) { return IMAGE_TYPE_RGB;    }
-  if (letters == "ABGR" ) { return IMAGE_TYPE_RGBA;   }
-  if (letters == "CY"   ) { return IMAGE_TYPE_YC;     }
-  if (letters == "AY"   ) { return IMAGE_TYPE_YA;     }
-  if (letters == "ACY"  ) { return IMAGE_TYPE_YC;     }
-
-  return IMAGE_TYPE_UNDEFINED;
-}
-
-
 
 //-----------------------------------------------------------------------------
 // Implementation of Channel
 
 
-Channel::Channel(const std::string &name,
-                 const data_type   type,
-                 const size_t      pixel_width,
-                 const size_t      pixel_height)
+Channel::Channel(const std::string   &name,
+                 const PixelDataType type,
+                 const size_t        pixel_width,
+                 const size_t        pixel_height)
 :
   m_name(name),
-  m_type(type),
-  m_x_stride(type == DATA_TYPE_HALF ? 2 : 4),
+  m_layer(NULL),
+  m_pixel_data_type(type),
+  m_x_stride(type == PIXEL_DATA_TYPE_HALF ? 2 : 4),
   m_y_stride(m_x_stride * pixel_width),
   m_line_count(pixel_height),
   m_buffer(new char[m_y_stride * m_line_count])
@@ -74,17 +33,6 @@ Channel::Channel(const std::string &name,
 Channel::~Channel()
 {
   delete[] m_buffer;
-}
-
-
-
-//-----------------------------------------------------------------------------
-// Implementation of Layer
-
-
-const image_type Layer::get_image_type() const
-{
-  return channels_to_image_type (m_channels);
 }
 
 
@@ -160,7 +108,7 @@ bool File::load(std::string &error_msg)
             case Imf::UINT:
               {
               channel = new Channel (it.name(), 
-                                     DATA_TYPE_UINT,
+                                     PIXEL_DATA_TYPE_UINT,
                                      m_width,
                                      m_height);
               break;
@@ -168,7 +116,7 @@ bool File::load(std::string &error_msg)
             case Imf::FLOAT:
               {
               channel = new Channel (it.name(), 
-                                     DATA_TYPE_FLOAT,
+                                     PIXEL_DATA_TYPE_FLOAT,
                                      m_width,
                                      m_height);
               break;
@@ -176,7 +124,7 @@ bool File::load(std::string &error_msg)
             case Imf::HALF:
               {
               channel = new Channel (it.name(), 
-                                     DATA_TYPE_HALF,
+                                     PIXEL_DATA_TYPE_HALF,
                                      m_width,
                                      m_height);
               break;
@@ -219,12 +167,27 @@ bool File::load(std::string &error_msg)
                 {
                   if (m_channels[i]->get_name() == channel_name)
                     {
-                      layer->add_channel(m_channels[i]); 
+                      layer->add_channel((Channel*)m_channels[i]); 
                       break;
                     }
                 }
           }
           m_layers.push_back (layer);
+        }
+
+      // put all orphaned channels on a layer
+      Layer *main_layer = NULL;
+      for (size_t i = 0; i < m_channels.size(); ++i)
+        {
+          if (!m_channels[i]->get_layer())
+            {
+              if (!main_layer)
+              {
+                main_layer = new Layer("");
+                m_layers.push_back(main_layer);
+              }
+              main_layer->add_channel((Channel*)m_channels[i]);
+            }
         }
 
       // read out all the data in one sweep 
@@ -239,12 +202,6 @@ bool File::load(std::string &error_msg)
 
   m_loaded = true;
   return true;
-}
-
-
-const image_type File::get_image_type() const
-{
-  return channels_to_image_type (m_channels);
 }
 
 

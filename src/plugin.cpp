@@ -73,29 +73,36 @@ run (const gchar      *name,
      GimpParam       **return_vals)
 {
   static GimpParam  return_values[2];
-  GimpRunMode       run_mode;
   GimpPDBStatusType status = GIMP_PDB_SUCCESS;
 
   // get our run mode
-  run_mode        = (GimpRunMode)param[0].data.d_int32;
-  gchar *filename = param[1].data.d_string;
+  GimpRunMode run_mode  = (GimpRunMode)param[0].data.d_int32;
+  gchar       *filename = param[1].data.d_string;
 
   exr::File   file (filename);
   std::string error_msg = "";
   gint32      image_id  = -1;
 
-  // read the exr file and load each layer as a gimp layer
+  // read the exr file
   if (file.load(error_msg))
     {
-      std::string error_msg;
-      if (!convert_to_8_bit (file, image_id, error_msg))
+      // TODO: configurable settings
+      ConversionSettings settings;
+      settings.m_gamma = 2.2f;
+      // create converter and do the conversion
+      Converter converter (file, settings);
+      if (!converter.convert (image_id, error_msg))
         {
           g_message("%s\n", error_msg.c_str());
           status = GIMP_PDB_EXECUTION_ERROR;
         }
     }
+  else
+    {
+      status = GIMP_PDB_EXECUTION_ERROR;
+    }
 
-  // init return values
+  // fill in the return values (status & image id)
   return_values[0].type          = GIMP_PDB_STATUS;
   return_values[0].data.d_status = status;
   return_values[1].type          = GIMP_PDB_IMAGE;
