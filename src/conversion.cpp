@@ -13,6 +13,21 @@ using namespace exr;
 // Helpers
 
 
+// Creates a new GIMP image.
+//
+// @param[in]   type
+//  GIMP image type
+// @param[in]   width
+//  width of the image in pixels
+// @param[in]   height
+//  height of the image in pixels
+// @param[out]  image_id
+//  id of the fresh image, only valid when this function returns true
+// @param[out]  error_msg
+//  error message, only contains a meaningful message when this function
+//  fails
+// @return
+//  true on success, false on failure
 static bool create_gimp_image (const GimpImageBaseType type,
                                size_t                  width,
                                size_t                  height,
@@ -29,6 +44,23 @@ static bool create_gimp_image (const GimpImageBaseType type,
 }
 
 
+// Adds a layer to an existing GIMP image and copies in the provided pixel
+// data.
+//
+// @param[in]   type
+//  type of layer
+// @param[in]   width
+//  width of the layer in pixels
+// @param[in]   height
+//  height of the layer in pixels
+// @param[in]   image_id
+//  id of the image to which we add this layer
+// @param[in]   data
+//  pixel data in the format as expected by the layer type
+// @param[out]  error_msg
+//  error message, only filled in when something went wrong
+// @return
+//  true on success, false on failure
 static bool add_layer (const GimpImageType type,
                        const std::string   &layer_name,
                        const size_t        width,
@@ -109,7 +141,7 @@ enum LayerType
 };
 
 
-LayerType determine_layer_type (const exr::Layer &layer)
+static LayerType determine_layer_type (const exr::Layer &layer)
 {
   if (layer.get_channel_count() > 4)
     {
@@ -120,7 +152,7 @@ LayerType determine_layer_type (const exr::Layer &layer)
   std::string names = "";
   for (size_t i = 0; i < layer.get_channel_count(); ++i)
     {
-      names += layer.get_channels()[i]->get_name();
+      names += layer.get_channel_at(i)->get_name();
     }
   std::sort(names.begin(), names.end());
 
@@ -134,6 +166,23 @@ LayerType determine_layer_type (const exr::Layer &layer)
 
   return LAYER_TYPE_UNDEFINED;
 }
+
+
+static const char* layer_type_to_string (const LayerType type)
+{
+  switch (type)
+  {
+    LAYER_TYPE_UNDEFINED: { return "undefined"; }
+    LAYER_TYPE_Y        : { return "Y";         }
+    LAYER_TYPE_YC       : { return "YC";        }
+    LAYER_TYPE_YA       : { return "YA";        }
+    LAYER_TYPE_YCA      : { return "YCA";       }
+    LAYER_TYPE_RGBA     : { return "RGBA";      }
+    LAYER_TYPE_RGB      : { return "RGB";       }
+    default             : { return "unknown";   }
+  }
+}
+
 
 
 //-----------------------------------------------------------------------------
@@ -174,16 +223,16 @@ bool Converter::convert (gint32      &image_id,
   // convert each layer individually 
   for (size_t i = 0; i < m_file.get_layer_count(); ++i)
     {
-      const Layer     *layer = m_file.get_layers()[i];
+      const Layer     *layer = m_file.get_layer_at(i);
       const LayerType type   = determine_layer_type (*layer);
       switch (type)
         {
           case LAYER_TYPE_RGBA:
             {
-              float *r = (float*)m_file.find_channel("R")->get_data();
-              float *g = (float*)m_file.find_channel("G")->get_data();
-              float *b = (float*)m_file.find_channel("B")->get_data();
-              float *a = (float*)m_file.find_channel("A")->get_data();
+              float *r = (float*)layer->get_channel("R")->get_data();
+              float *g = (float*)layer->get_channel("G")->get_data();
+              float *b = (float*)layer->get_channel("B")->get_data();
+              float *a = (float*)layer->get_channel("A")->get_data();
 
               const size_t pixel_count = m_file.get_width() 
                                          * m_file.get_height();
@@ -221,7 +270,8 @@ bool Converter::convert (gint32      &image_id,
           case LAYER_TYPE_YA:
           case LAYER_TYPE_YCA:
             {
-              error_msg = "not implemented";
+              error_msg = "not implemented: " 
+                          + std::string(layer_type_to_string (type));
               return false;
             }
         }

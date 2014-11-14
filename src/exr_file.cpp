@@ -53,18 +53,12 @@ File::File(const std::string &path)
 
 File::~File()
 {
-  // delete layers
+  // delete layers (layers will delete their channels)
   for (size_t i = 0; i < m_layers.size(); ++i)
     {
       delete m_layers[i];
     }
   m_layers.clear();
-  // delete channels 
-  for (size_t i = 0; i < m_channels.size(); ++i)
-    {
-    delete m_channels[i];
-    }
-  m_channels.clear();
   // cleanup OpenEXR file handle
   delete (Imf::InputFile*)m_handle;
 }
@@ -75,7 +69,7 @@ bool File::load(std::string &error_msg)
   // don't bother if it's not an OpenEXR file
   if (!Imf::isOpenExrFile(get_path().c_str()))
     {
-      error_msg = "file is not a valid OpenEXR file";
+      error_msg = "file is not an OpenEXR file";
       return false;
     }
 
@@ -91,23 +85,27 @@ bool File::load(std::string &error_msg)
       m_width                   = data_window.max.x - data_window.min.x + 1;
       m_height                  = data_window.max.y - data_window.min.y + 1;
 
+      // stores pointers to the data to read out of the file
       Imf::FrameBuffer frame_buffer;
 
       // list of all the channels in the file
       const Imf::ChannelList &channel_list = header.channels();
-
       // collect all the channels
       for (Imf::ChannelList::ConstIterator it = channel_list.begin();
            it != channel_list.end();
            ++it)
         {
+          std::string channel_name;
+          std::string layer_name;
+          split_full_channel_name (it.name(), layer_name, channel_name);
+
           // create the new channel
           Channel *channel = NULL; 
           switch (it.channel().type)
             {
             case Imf::UINT:
               {
-              channel = new Channel (it.name(), 
+              channel = new Channel (channel_name,
                                      PIXEL_DATA_TYPE_UINT,
                                      m_width,
                                      m_height);
@@ -115,7 +113,7 @@ bool File::load(std::string &error_msg)
               }
             case Imf::FLOAT:
               {
-              channel = new Channel (it.name(), 
+              channel = new Channel (channel_name,
                                      PIXEL_DATA_TYPE_FLOAT,
                                      m_width,
                                      m_height);
@@ -123,7 +121,7 @@ bool File::load(std::string &error_msg)
               }
             case Imf::HALF:
               {
-              channel = new Channel (it.name(), 
+              channel = new Channel (channel_name,
                                      PIXEL_DATA_TYPE_HALF,
                                      m_width,
                                      m_height);
@@ -131,11 +129,18 @@ bool File::load(std::string &error_msg)
               }
             }
 
+          // find or create the layer
+          Layer *layer = NULL;
+          if (!find_layer (layer_name, (const Layer**)&layer))
+            {
+              layer = new Layer (layer_name);
+              insert_layer (layer);
+            }
           // track the channel
-          m_channels.push_back(channel);
+          layer->insert_channel (channel);
 
           // register channels' buffer with fame buffer
-          frame_buffer.insert (channel->get_name().c_str(),
+          frame_buffer.insert (it.name(),
                                Imf::Slice (it.channel().type,
                                            (char*)channel->get_data(),
                                            channel->get_x_stride(),
@@ -143,51 +148,6 @@ bool File::load(std::string &error_msg)
                                            it.channel().xSampling,
                                            it.channel().ySampling,
                                            0.f));
-        }
-
-      // get the layer names
-      std::set<std::string> layer_names;
-      channel_list.layers(layer_names);
-
-      // assign the channels to layers
-      for (std::set<std::string>::const_iterator it = layer_names.begin();
-           it != layer_names.end();
-           ++it)
-        {
-          Layer *layer = new Layer(*it);
-
-          // add the channels for this layer
-          Imf::ChannelList::ConstIterator first, last;
-          channel_list.channelsInLayer(*it, first, last);
-          for (Imf::ChannelList::ConstIterator cIt = first; cIt != last; ++cIt)
-            {
-              const std::string channel_name = cIt.name();
-              // find this layer
-              for (size_t i = 0; i < m_channels.size(); ++i)
-                {
-                  if (m_channels[i]->get_name() == channel_name)
-                    {
-                      layer->add_channel((Channel*)m_channels[i]); 
-                      break;
-                    }
-                }
-          }
-          m_layers.push_back (layer);
-        }
-
-      // put all orphaned channels on a layer
-      Layer *main_layer = NULL;
-      for (size_t i = 0; i < m_channels.size(); ++i)
-        {
-          if (!m_channels[i]->get_layer())
-            {
-              if (!main_layer)
-              {
-                main_layer = new Layer("");
-                m_layers.push_back(main_layer);
-              }
-              main_layer->add_channel((Channel*)m_channels[i]);
-            }
         }
 
       // read out all the data in one sweep 
@@ -205,31 +165,23 @@ bool File::load(std::string &error_msg)
 }
 
 
-bool File::has_channel(const std::string &name) const
+void File::split_full_channel_name (const std::string &input,
+                                    std::string       &layer_name,
+                                    std::string       &channel_name)
 {
-  for (size_t i = 0; i < m_channels.size(); ++i)
+  const size_t last_dot_ix = std::string(input).find_last_of ('.');
+  if (last_dot_ix == std::string::npos)
     {
-      if (m_channels[i]->get_name() == name)
-        {
-          return true;
-        }
+      layer_name   = "";
+      channel_name = input;
     }
-
-    return false;
+  else
+    {
+      layer_name   = input.substr(0, last_dot_ix);
+      channel_name = input.substr(last_dot_ix+1);
+    }
 }
 
-
-const Channel* File::find_channel (const std::string &name) const
-{
-  for (size_t i = 0; i < m_channels.size(); ++i)
-    {
-      if (m_channels[i]->get_name() == name)
-        {
-          return m_channels[i];
-        }
-    }
-  return NULL;
-}
 
 
 /* vim: set ts=2 sw=2 : */

@@ -14,12 +14,6 @@ class Channel;
 class File;
 class Layer;
 
-typedef std::map<std::string, size_t> ChannelMapT;
-typedef std::vector<Channel*>         ChannelListT;
-typedef std::vector<const Channel*>   ConstChannelListT;
-typedef std::vector<Layer*>           LayerListT;
-typedef std::vector<const Layer*>     ConstLayerListT;;
-
 
 enum PixelDataType
 {
@@ -156,23 +150,36 @@ public:
   // Returns the name of this layer.
   const std::string& get_name() const;
 
-  // Adds a channel to this layer. The layer will also set itself
-  // as the "parent" of the channel.
-  void add_channel(Channel *channel);
-
-  // Returns the list of channels in this layer.
-  const ConstChannelListT& get_channels() const;
-
   // Returns the number of channels.
   size_t get_channel_count() const;
 
+  // Returns the channel with the specified name.
+  const Channel* get_channel (const std::string &name) const;
+
+  // Returns the channel at the specified index.
+  const Channel* get_channel_at (const size_t index) const;
+
   // Checks if we have a channel with the given name.
-  bool has_channel(const std::string &name) const;
+  bool find_channel (const std::string &name,
+                     const Channel     *channel) const;
 
 private:
 
+  friend class File;
+
+  typedef std::map <std::string, size_t> IndexT;
+  typedef std::vector<const Channel*>    ConstChannelListT;
+
+  // name of this channel
   const std::string m_name;
+  // index from channel name to it's index
+  IndexT            m_index;
+  // list of the channels
   ConstChannelListT m_channels;
+
+  // Inserts a channel into this layer. The layer parents itself to the channel
+  // and also deletes the channel when this layer itself is deleted.
+  void insert_channel (Channel *channel);
 };
 
 
@@ -184,6 +191,10 @@ inline Layer::Layer(const std::string &name)
 
 inline Layer::~Layer()
 {
+  for (size_t i = 0; i < m_channels.size(); ++i)
+    {
+      delete m_channels[i];
+    }
   m_channels.clear();
 }
 
@@ -194,23 +205,57 @@ inline const std::string& Layer::get_name() const
 }
 
 
-inline void Layer::add_channel(Channel *channel)
-{
-  m_channels.push_back (channel);
-  channel->set_layer (this);
-}
-
-
-inline const ConstChannelListT& Layer::get_channels() const
-{
-  return m_channels;
-}
-
-
 inline size_t Layer::get_channel_count() const
 {
   return m_channels.size();
 }
+
+
+inline const Channel* Layer::get_channel (const std::string &name) const
+{
+  IndexT::const_iterator found = m_index.find(name);
+  if (found != m_index.end())
+    {
+      return m_channels[found->second];
+    }
+  return NULL;
+}
+
+
+inline const Channel* Layer::get_channel_at (const size_t index) const
+{
+  if (index < m_channels.size())
+    {
+      return m_channels[index];
+    }
+  return NULL;
+}
+
+
+inline bool Layer::find_channel (const std::string &name,
+                                 const Channel     *channel) const
+{
+  IndexT::const_iterator found = m_index.find(name);
+  if (found == m_index.end())
+    {
+      channel = NULL;
+      return false;
+    }
+  else
+    {
+      channel = m_channels[found->second];
+      return true;
+    }
+}
+
+
+inline void Layer::insert_channel (Channel *channel)
+{
+  m_index.insert (std::make_pair(channel->get_name(), m_channels.size()));
+  m_channels.push_back (channel);
+  channel->set_layer (this);
+}
+
 
 
 //-----------------------------------------------------------------------------
@@ -242,26 +287,20 @@ public:
   // Returns the height of the file in pixels.
   size_t get_height() const;
 
-  // Returns the list of all layers.
-  const ConstLayerListT& get_layers() const;
-
   // Returns the number of layers.
   size_t get_layer_count() const;
 
-  // Returns a list of all the channels.
-  const ConstChannelListT& get_channels() const;
+  // Finds a layer by name, returns false if no such layer can be found.
+  bool find_layer (const std::string &name,
+                   const Layer       **layer) const;
 
-  // Returns the total number of channels.
-  size_t get_channel_count() const;
-
-  // Checks if we have a channel with the given name.
-  bool has_channel(const std::string &name) const;
-
-  // Returns a particular channel by name. Returns NULL if no channel was
-  // found in this image.
-  const Channel* find_channel (const std::string &name) const;
+  // Returns the layer at the specified index.
+  const Layer* get_layer_at (size_t index) const;
 
 private:
+
+  typedef std::map <std::string, size_t> IndexT;
+  typedef std::vector <const Layer*>     ConstLayerListT;
 
   // flag indicating successfull disk load
   bool              m_loaded;
@@ -273,10 +312,18 @@ private:
   size_t            m_height;
   // OpenEXR lib file handle
   void              *m_handle;
-  // list of all the channels in this file (nested in layers as well)
-  ConstChannelListT m_channels;
-  // list of all the layers in this file
+  // layer name index
+  IndexT            m_index;
+  // list of all the layers in this file.
   ConstLayerListT   m_layers;
+
+  // inserts a layer
+  void insert_layer (Layer *layer);
+
+  // splits a full channel name (e.g. AO.G into AO & G)
+  static void split_full_channel_name (const std::string &input,
+                                       std::string       &layer_name,
+                                       std::string       &channel_name);
 };
 
 
@@ -304,30 +351,46 @@ inline size_t File::get_height() const
 }
 
 
-inline const ConstLayerListT& File::get_layers() const
-{
-  return m_layers;
-}
-
-
 inline size_t File::get_layer_count() const
 {
   return m_layers.size();
 }
 
 
-inline const ConstChannelListT& File::get_channels() const
+inline bool File::find_layer (const std::string &name,
+                              const Layer       **layer) const
 {
-  return m_channels;
+  IndexT::const_iterator found = m_index.find (name);
+  if (found == m_index.end())
+    {
+      *layer = NULL;
+      return false;
+    }
+  else
+    {
+      *layer = m_layers[found->second];
+      return true;
+    }
 }
 
 
-inline size_t File::get_channel_count() const
+inline const Layer* File::get_layer_at (size_t index) const
 {
-  return m_channels.size();
+  if (index < m_layers.size())
+    {
+      return m_layers[index];
+    }
+  return NULL;
 }
 
- 
+
+inline void File::insert_layer (Layer *layer)
+{
+  m_index.insert(std::make_pair(layer->get_name(), m_layers.size()));
+  m_layers.push_back(layer);
+}
+
+
 } // namespace exr
 
 
