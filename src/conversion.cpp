@@ -2,6 +2,8 @@
 #include <algorithm>
 // GIMP includes
 #include <libgimp/gimp.h>
+// OpenEXR includes
+#include <half.h>
 // plugin includes
 #include "exr_file.hpp"
 // myself
@@ -184,6 +186,66 @@ static const char* layer_type_to_string (const LayerType type)
 }
 
 
+// Converts EXR HDR channel data to GIMP 8-bit LDR.
+//
+// @param[in]   pixel_count
+//    number of pixels for the image - must be also the lenght of each channel
+//    data array
+// @param[in]   data_type
+//    data type the channels
+// @param[in]   input
+//    list with the raw data for each channel
+// @param[out]  output
+//    8-bit LDR image, it's up to the caller to delete[] this image afterwards
+static void convert_to_ldr(const size_t             pixel_count,
+                           const exr::PixelDataType data_type,
+                           std::vector<const char*> &input,
+                           guchar                   **output)
+{
+  const size_t channel_count = input.size();
+  *output                    = new guchar[pixel_count * channel_count];
+
+  // copy over the pixels 
+  // TODO: do a proper HDR to LDR conversion
+  // TODO: vectorize this code
+  switch (data_type)
+    {
+    case exr::PIXEL_DATA_TYPE_FLOAT: 
+      {
+        for (size_t i = 0; i < pixel_count; ++i)
+          {
+            for (size_t j = 0; j < channel_count; ++j)
+              {
+                (*output)[channel_count * i + j] = ((float*)input[j])[i] * 255.f;
+              }
+          }
+        break;
+      }
+    case exr::PIXEL_DATA_TYPE_HALF: 
+      {
+         for (size_t i = 0; i < pixel_count; ++i)
+            {
+              for (size_t j = 0; j < channel_count; ++j)
+                {
+                  (*output)[channel_count * i + j] = ((half*)input[j])[i] * 255.f;
+                }
+            }
+         break;
+      }
+    case exr::PIXEL_DATA_TYPE_UINT: 
+      {
+         for (size_t i = 0; i < pixel_count; ++i)
+            {
+              for (size_t j = 0; j < channel_count; ++j)
+                {
+                  (*output)[channel_count * i + j] = ((unsigned int*)input[j])[i] * 255u;
+                }
+            }
+        break;
+      }
+    }
+}
+
 
 //-----------------------------------------------------------------------------
 // Implementation of Converter
@@ -229,38 +291,31 @@ bool Converter::convert (gint32      &image_id,
         {
           case LAYER_TYPE_RGBA:
             {
-              float *r = (float*)layer->get_channel("R")->get_data();
-              float *g = (float*)layer->get_channel("G")->get_data();
-              float *b = (float*)layer->get_channel("B")->get_data();
-              float *a = (float*)layer->get_channel("A")->get_data();
-
-              const size_t pixel_count = m_file.get_width() 
-                                         * m_file.get_height();
-              guchar *data = new guchar[pixel_count * 4];
-              // copy over the pixels 
-              // TODO: do a proper HDR to LDR conversion
-              // TODO: vectorize this code
-              for (size_t i = 0; i < pixel_count; ++i)
-                {
-                  data[4 * i + 0] = r[i] * 255.f;
-                  data[4 * i + 1] = g[i] * 255.f;
-                  data[4 * i + 2] = b[i] * 255.f;
-                  data[4 * i + 3] = a[i] * 255.f;
-                }
+              std::vector<const char*> input;
+              input.push_back(layer->get_channel("R")->get_data());
+              input.push_back(layer->get_channel("G")->get_data());
+              input.push_back(layer->get_channel("B")->get_data());
+              input.push_back(layer->get_channel("A")->get_data());
+              
+              guchar *output = NULL;
+              convert_to_ldr (m_file.get_width() * m_file.get_height(),
+                              layer->get_channel("R")->get_pixel_data_type(),
+                              input,
+                              &output);
 
               if (!add_layer (GIMP_RGBA_IMAGE,
                               layer->get_name(),
                               m_file.get_width(),
                               m_file.get_height(),
                               image_id,
-                              data,
+                              output,
                               error_msg))
                 {
-                  delete[] data;
+                  delete[] output;
                   return false;
                 }
 
-              delete[] data;
+              delete[] output;
               break;
             }
           case LAYER_TYPE_RGB:

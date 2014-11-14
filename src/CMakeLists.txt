@@ -26,7 +26,7 @@ set(SOURCES
 
 add_executable(${PLUGIN_NAME} ${SOURCES})
 
-target_link_libraries(${PLUGIN_NAME} ${GIMP_LD_FLAGS} IlmImf)
+target_link_libraries(${PLUGIN_NAME} ${GIMP_LD_FLAGS} IlmImf Half)
 
 install(TARGETS ${PLUGIN_NAME}
         DESTINATION ${GIMP_PLUGIN_DIR})
