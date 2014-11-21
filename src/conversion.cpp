@@ -291,8 +291,21 @@ bool Converter::convert (gint32      &image_id,
       return false;
     }
 
-  // create GIMP image (TODO: distinguish between grayscale and rgba)
-  if (!create_gimp_image (GIMP_RGB,
+  // check if all layers are grayscale, only then we can create
+  // a graycale image in the GIMP
+  bool grayscale = true;
+  for (size_t i = 0; i < m_file.get_layer_count(); ++i)
+    {
+      const LayerType layer_type = determine_layer_type (*m_file.get_layer_at(i));
+      if (layer_type != LAYER_TYPE_Y && layer_type != LAYER_TYPE_YA)
+        {
+          grayscale = false;
+          break;
+        }
+    }
+
+  // create GIMP image
+  if (!create_gimp_image (grayscale ? GIMP_GRAY : GIMP_RGB,
                           m_file.get_width(),
                           m_file.get_height(),
                           image_id,
@@ -339,10 +352,123 @@ bool Converter::convert (gint32      &image_id,
               break;
             }
           case LAYER_TYPE_RGB:
-          case LAYER_TYPE_UNDEFINED:
+            {
+              std::vector<const char*> input;
+              input.push_back(layer->get_channel("R")->get_data());
+              input.push_back(layer->get_channel("G")->get_data());
+              input.push_back(layer->get_channel("B")->get_data());
+              
+              guchar *output = NULL;
+              convert_to_ldr (m_settings,
+                              m_file.get_width() * m_file.get_height(),
+                              layer->get_channel("R")->get_pixel_data_type(),
+                              input,
+                              &output);
+
+              if (!add_layer (GIMP_RGB_IMAGE,
+                              layer->get_name(),
+                              m_file.get_width(),
+                              m_file.get_height(),
+                              image_id,
+                              output,
+                              error_msg))
+                {
+                  delete[] output;
+                  return false;
+                }
+
+              delete[] output;
+              break;
+
+            }
           case LAYER_TYPE_Y:
-          case LAYER_TYPE_YC:
+            {
+              guchar *output = NULL;
+              if (grayscale)
+                {
+                  std::vector<const char*> input;
+                  input.push_back(layer->get_channel("Y")->get_data());
+
+                  convert_to_ldr (m_settings,
+                                  m_file.get_width() * m_file.get_height(),
+                                  layer->get_channel("Y")->get_pixel_data_type(),
+                                  input,
+                                  &output);
+                }
+              else
+                {
+                  std::vector<const char*> input;
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("Y")->get_data());
+
+                  convert_to_ldr (m_settings,
+                                  m_file.get_width() * m_file.get_height(),
+                                  layer->get_channel("Y")->get_pixel_data_type(),
+                                  input,
+                                  &output);
+                }
+
+              if (!add_layer (GIMP_GRAY_IMAGE,
+                              layer->get_name(),
+                              m_file.get_width(),
+                              m_file.get_height(),
+                              image_id,
+                              output,
+                              error_msg))
+                {
+                  delete[] output;
+                  return false;
+                }
+
+              delete[] output;
+              break;
+            }
           case LAYER_TYPE_YA:
+            {
+              guchar *output = NULL;
+              if (grayscale)
+                {
+                  std::vector<const char*> input;
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("A")->get_data());
+
+                  convert_to_ldr (m_settings,
+                                  m_file.get_width() * m_file.get_height(),
+                                  layer->get_channel("Y")->get_pixel_data_type(),
+                                  input,
+                                  &output);
+                }
+              else
+                {
+                  std::vector<const char*> input;
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("Y")->get_data());
+                  input.push_back(layer->get_channel("A")->get_data());
+
+                  convert_to_ldr (m_settings,
+                                  m_file.get_width() * m_file.get_height(),
+                                  layer->get_channel("Y")->get_pixel_data_type(),
+                                  input,
+                                  &output);
+                }
+
+              if (!add_layer (GIMP_GRAYA_IMAGE,
+                              layer->get_name(),
+                              m_file.get_width(),
+                              m_file.get_height(),
+                              image_id,
+                              output,
+                              error_msg))
+                {
+                  delete[] output;
+                  return false;
+                }
+              break;
+            }
+          case LAYER_TYPE_UNDEFINED:
+          case LAYER_TYPE_YC:
           case LAYER_TYPE_YCA:
             {
               error_msg = "not implemented: " 
