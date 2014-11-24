@@ -159,12 +159,12 @@ static LayerType determine_layer_type (const exr::Layer &layer)
   std::sort(names.begin(), names.end());
 
   // figure out the type from the names
-  if (names == "Y"   ) { return LAYER_TYPE_Y;    }
-  if (names == "CY"  ) { return LAYER_TYPE_YC;   }
-  if (names == "AY"  ) { return LAYER_TYPE_YA;   }
-  if (names == "ACY" ) { return LAYER_TYPE_YCA;  }
-  if (names == "ABGR") { return LAYER_TYPE_RGBA; }
-  if (names == "BGR" ) { return LAYER_TYPE_RGB;  }
+  if (names == "Y"     ) { return LAYER_TYPE_Y;    }
+  if (names == "BRYYY" ) { return LAYER_TYPE_YC;   }
+  if (names == "AY"    ) { return LAYER_TYPE_YA;   }
+  if (names == "ABRYYY") { return LAYER_TYPE_YCA;  }
+  if (names == "ABGR"  ) { return LAYER_TYPE_RGBA; }
+  if (names == "BGR"   ) { return LAYER_TYPE_RGB;  }
 
   return LAYER_TYPE_UNDEFINED;
 }
@@ -197,7 +197,7 @@ static inline T clamp (const T x,
 }
 
 
-// Converts EXR HDR channel data to GIMP 8-bit LDR.
+// Converts EXR HDR channels data to GIMP 8-bit LDR.
 //
 // @param[in]   settings
 //    user-configured conversion settings
@@ -266,6 +266,90 @@ static void convert_to_ldr(const ConversionSettings &settings,
 }
 
 
+// Converts EXR luminance/chroma channels data to GIMP 8-bit LDR.
+//
+// @param[in]   settings
+//    user-configured conversion settings
+// @param[in]   width
+//    width of the image in pixels
+// @param[in]   height
+//    height of the image in pixels
+// @param[in]   data_type
+//    data type the channels
+// @param[in]   input
+//    list with the raw data for each channel
+// @param[out]  output
+//    8-bit LDR image, it's up to the caller to delete[] this image afterwards
+static void chroma_to_ldr (const ConversionSettings &settings,
+                           const size_t             width,
+                           const size_t             height,
+                           const exr::PixelDataType data_type,
+                           std::vector<const char*> &input,
+                           guchar                   **output)
+{
+  const float  inv_gamma     = 1.0f / settings.m_gamma;
+  const float  exposure      = powf(2.f, settings.m_exposure + 2.47393f);
+  const size_t channel_count = input.size();
+  *output                    = new guchar[width * height * channel_count];
+
+  // copy over the pixels 
+  // TODO: do a proper HDR to LDR conversion
+  // TODO: vectorize this code
+  switch (data_type)
+    {
+    case exr::PIXEL_DATA_TYPE_FLOAT: 
+    case exr::PIXEL_DATA_TYPE_UINT: 
+      {
+        const float *lum = (const float*)input[0];
+        const float *ry  = (const float*)input[1];
+        const float *rb  = (const float*)input[2];
+        const float *a   = channel_count > 3 ? (const float*)input[3] : NULL;
+        for (size_t y = 0; y < height; ++y)
+          {
+            for (size_t x = 0; x < width; ++x)
+              {
+                const size_t ix   = y * width + x;
+                const size_t six  = (y / 2) * width + (x / 2);
+                // get luminance/chroma and convert them to rgb color space
+                (*output)[channel_count * ix + 0] = clamp(lum[ix] * 255.f, 0.f, 255.f);
+                (*output)[channel_count * ix + 1] = clamp(ry[six] * 255.f, 0.f, 255.f);
+                (*output)[channel_count * ix + 2] = clamp(rb[six] * 255.f, 0.f, 255.f);
+                if (a)
+                  {
+                    (*output)[channel_count * ix + 3] = clamp(a[ix] * 255.f, 0.f, 255.f);
+                  }
+              }
+            }
+        break;
+      }
+    case exr::PIXEL_DATA_TYPE_HALF: 
+      {
+        const half *lum = (const half*)input[0];
+        const half *ry  = (const half*)input[1];
+        const half *rb  = (const half*)input[2];
+        const half *a   = channel_count > 3 ? (const half*)input[3] : NULL;
+        for (size_t y = 0; y < height; ++y)
+          {
+            for (size_t x = 0; x < width; ++x)
+              {
+                const size_t ix   = y * width + x;
+                const size_t six  = (y / 2) * width + (x / 2);
+                // get luminance/chroma and convert them to rgb color space
+                (*output)[channel_count * ix + 0] = clamp(lum[ix] * 255.f, 0.f, 255.f);
+                (*output)[channel_count * ix + 1] = clamp(ry[six] * 255.f, 0.f, 255.f);
+                (*output)[channel_count * ix + 2] = clamp(rb[six] * 255.f, 0.f, 255.f);
+                if (a)
+                  {
+                    (*output)[channel_count * ix + 3] = clamp(a[ix] * 255.f, 0.f, 255.f);
+                  }
+              }
+            }
+         break;
+      }
+    }
+}
+
+
 //-----------------------------------------------------------------------------
 // Implementation of Converter
 
@@ -276,7 +360,6 @@ Converter::Converter (const exr::File          &file,
   m_file (file),
   m_settings (settings)
 {}
-
 
 
 bool Converter::convert (gint32      &image_id,
@@ -465,11 +548,45 @@ bool Converter::convert (gint32      &image_id,
                   delete[] output;
                   return false;
                 }
+
+              delete[] output;
+              break;
+            }
+          case LAYER_TYPE_YC:
+          case LAYER_TYPE_YCA:
+            {
+              std::vector<const char*> input;
+              input.push_back(layer->get_channel("Y")->get_data());
+              input.push_back(layer->get_channel("RY")->get_data());
+              input.push_back(layer->get_channel("BY")->get_data());
+              Channel *alpha_channel = NULL;
+              if (layer->find_channel("A", alpha_channel))
+              {
+                input.push_back(alpha_channel->get_data());
+              }
+
+              guchar *output = NULL;
+              chroma_to_ldr (m_settings,
+                             m_file.get_width(),
+                             m_file.get_height(),
+                             layer->get_channel("Y")->get_pixel_data_type(),
+                             input,
+                             &output);
+
+              if (!add_layer (GIMP_RGB_IMAGE,
+                              layer->get_name(),
+                              m_file.get_width(),
+                              m_file.get_height(),
+                              image_id,
+                              output,
+                              error_msg))
+                {
+                  delete[] output;
+                  return false;
+                }
               break;
             }
           case LAYER_TYPE_UNDEFINED:
-          case LAYER_TYPE_YC:
-          case LAYER_TYPE_YCA:
             {
               error_msg = "not implemented: " 
                           + std::string(layer_type_to_string (type));
